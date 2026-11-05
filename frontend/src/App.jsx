@@ -1,166 +1,306 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
-const DEFAULT_GATEWAY = 'http://localhost:5000';
+const GATEWAY_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const SESSION_KEY = 'portal_auth_session';
 
 const formatCountdown = (totalSeconds) => {
   const sec = Math.max(0, Number(totalSeconds) || 0);
   const mins = Math.floor(sec / 60);
   const rem = sec % 60;
-  return mins > 0 ? `${mins}m ${String(rem).padStart(2, '0')}s` : `${rem}s`;
+  return mins > 0 ? `${mins}:${String(rem).padStart(2, '0')}` : `${rem}s`;
 };
+
+const getPasswordStrength = (pwd) => {
+  if (!pwd) return { score: 0, label: '' };
+  let score = 0;
+  if (pwd.length >= 6) score++;
+  if (pwd.length >= 10) score++;
+  if (/[A-Z]/.test(pwd) && /[a-z]/.test(pwd)) score++;
+  if (/\d/.test(pwd) && /[^A-Za-z0-9]/.test(pwd)) score++;
+  const labels = ['Too weak', 'Weak', 'Fair', 'Good', 'Strong'];
+  return { score, label: labels[score] };
+};
+
+/* ---------- Small icon helpers ---------- */
+const Icon = ({ children, size = 18 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {children}
+  </svg>
+);
+
+const MailIcon = () => (
+  <Icon>
+    <rect x="2" y="4" width="20" height="16" rx="2" />
+    <path d="m22 7-10 6L2 7" />
+  </Icon>
+);
+const LockIcon = () => (
+  <Icon>
+    <rect x="3" y="11" width="18" height="11" rx="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </Icon>
+);
+const UserIcon = () => (
+  <Icon>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </Icon>
+);
+const EyeIcon = ({ off }) =>
+  off ? (
+    <Icon>
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+      <path d="m1 1 22 22" />
+    </Icon>
+  ) : (
+    <Icon>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </Icon>
+  );
+const CheckIcon = () => (
+  <Icon size={16}>
+    <path d="M20 6 9 17l-5-5" />
+  </Icon>
+);
+const AlertIcon = () => (
+  <Icon size={18}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 8v4M12 16h.01" />
+  </Icon>
+);
+const BriefcaseIcon = ({ size = 22 }) => (
+  <Icon size={size}>
+    <rect x="2" y="7" width="20" height="14" rx="2" />
+    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+  </Icon>
+);
+const SearchIcon = () => (
+  <Icon size={20}>
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.3-4.3" />
+  </Icon>
+);
+const BuildingIcon = () => (
+  <Icon size={20}>
+    <rect x="4" y="2" width="16" height="20" rx="2" />
+    <path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M8 10h.01M16 10h.01M12 10h.01M8 14h.01M16 14h.01M12 14h.01" />
+  </Icon>
+);
+
+/* ---------- Brand panel (left side) ---------- */
+function BrandPanel({ mode }) {
+  return (
+    <aside className="brand-panel">
+      <div className="brand-panel-inner">
+        <div className="brand-logo">
+          <span className="brand-logo-mark">
+            <BriefcaseIcon size={20} />
+          </span>
+          <span className="brand-logo-text">JobConnect</span>
+        </div>
+
+        <div className="brand-hero">
+          <h1>
+            {mode === 'register'
+              ? 'Start your career journey today.'
+              : 'Your next opportunity is waiting.'}
+          </h1>
+          <p>
+            Join thousands of professionals and hiring teams on the platform that
+            connects great talent with great companies.
+          </p>
+
+          <ul className="brand-features">
+            <li>
+              <span className="feature-icon">
+                <SearchIcon />
+              </span>
+              <div>
+                <strong>Discover relevant roles</strong>
+                <span>Browse openings matched to your skills and goals.</span>
+              </div>
+            </li>
+            <li>
+              <span className="feature-icon">
+                <BuildingIcon />
+              </span>
+              <div>
+                <strong>Hire with confidence</strong>
+                <span>Reach qualified candidates and manage applications in one place.</span>
+              </div>
+            </li>
+            <li>
+              <span className="feature-icon">
+                <LockIcon />
+              </span>
+              <div>
+                <strong>Secure by design</strong>
+                <span>Encrypted credentials and protected sign-in.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div className="brand-stats">
+          <div>
+            <strong>10K+</strong>
+            <span>Active jobs</span>
+          </div>
+          <div>
+            <strong>2K+</strong>
+            <span>Companies</span>
+          </div>
+          <div>
+            <strong>50K+</strong>
+            <span>Candidates</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
 
 export default function App() {
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
 
-  // Registration & Login Form State
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
     role: 'CANDIDATE'
   });
-
+  const [remember, setRemember] = useState(true);
   const [fieldErrors, setFieldErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
-
-  // Redis Rate-Limit Countdown (seconds remaining when locked out with HTTP 429)
   const [retryAfter, setRetryAfter] = useState(0);
+  const [online, setOnline] = useState(true);
 
-  // Authenticated User Session
   const [session, setSession] = useState(() => {
     try {
-      const saved = localStorage.getItem('portal_auth_session');
+      const saved =
+        localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
     }
   });
 
-  // Protected route verification state
-  const [verifyLoading, setVerifyLoading] = useState(false);
-  const [verifyResult, setVerifyResult] = useState(null);
+  const strength = useMemo(
+    () => getPasswordStrength(formData.password),
+    [formData.password]
+  );
 
-  // Gateway Connection URL
-  const [gatewayUrl, setGatewayUrl] = useState(() => {
-    return localStorage.getItem('api_gateway_url') || DEFAULT_GATEWAY;
-  });
-  const [gatewayInput, setGatewayInput] = useState(gatewayUrl);
-  const [showGatewaySettings, setShowGatewaySettings] = useState(false);
+  /* ---- Backend availability (shown only when something is wrong) ---- */
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch(`${GATEWAY_URL}/health`, {
+          signal: AbortSignal.timeout(3000)
+        });
+        const data = await res.json();
+        if (!cancelled) setOnline(res.ok && data.status === 'success');
+      } catch {
+        if (!cancelled) setOnline(false);
+      }
+    };
+    check();
+    const id = setInterval(check, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
-  // Gateway & Downstream Health Status
-  const [gatewayHealth, setGatewayHealth] = useState({
-    status: 'checking',
-    label: 'Checking API Gateway...',
-    title: '',
-    services: null
-  });
-
-  // Tick down Redis rate-limit timer every second
+  /* ---- Rate-limit countdown ---- */
   useEffect(() => {
     if (retryAfter <= 0) return;
-
     const timer = setInterval(() => {
       setRetryAfter((prev) => {
         if (prev <= 1) {
-          setAlert((curr) =>
-            curr?.isRateLimit
-              ? {
-                  type: 'success',
-                  title: 'Rate Limit Cleared',
-                  message: 'Cooldown period finished. You may sign in again.'
-                }
-              : curr
-          );
+          setAlert((curr) => (curr?.isRateLimit ? null : curr));
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-
     return () => clearInterval(timer);
   }, [retryAfter]);
 
-  // Check API Gateway & Downstream Services Health
-  const checkGatewayHealth = async (targetUrl = gatewayUrl) => {
-    try {
-      const healthUrl = `${targetUrl}/health`;
-      const res = await fetch(healthUrl, { signal: AbortSignal.timeout(3000) });
-      const data = await res.json();
-
-      if (res.ok && data.status === 'success') {
-        // Supports both API Gateway (/health returns data.services) and direct Auth Service (:5001/health)
-        const services = data.services || {
-          authService: 'online',
-          database: 'connected',
-          redis: data.redis || 'unknown'
-        };
-
-        const allHealthy =
-          services.authService === 'online' &&
-          services.database === 'connected' &&
-          services.redis === 'connected';
-
-        setGatewayHealth({
-          status: allHealthy ? 'connected' : 'checking',
-          label: allHealthy ? 'All Services Online' : 'Gateway Online (Degraded)',
-          title: `Gateway: Online | Auth: ${services.authService} | DB: ${services.database} | Redis: ${services.redis}`,
-          services
+  /* ---- Validate stored session against the server ---- */
+  useEffect(() => {
+    if (!session?.token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${GATEWAY_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${session.token}` }
         });
-      } else {
-        setGatewayHealth({
-          status: 'error',
-          label: 'Gateway Error',
-          title: data.message || 'Health check error',
-          services: null
-        });
+        if (cancelled) return;
+        if (res.status === 401) {
+          clearSession();
+        } else if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (data.user) {
+            setSession((prev) => (prev ? { ...prev, user: data.user } : prev));
+          }
+        }
+      } catch {
+        /* keep the session if the backend is temporarily unreachable */
       }
-    } catch {
-      setGatewayHealth({
-        status: 'error',
-        label: 'Gateway Offline (Port 5000)',
-        title: `Could not reach ${targetUrl}. Ensure API Gateway is running.`,
-        services: null
-      });
-    }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.token]);
+
+  const clearSession = () => {
+    setSession(null);
+    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
   };
 
-  useEffect(() => {
-    checkGatewayHealth(gatewayUrl);
-    const interval = setInterval(() => checkGatewayHealth(gatewayUrl), 15000);
-    return () => clearInterval(interval);
-  }, [gatewayUrl]);
+  const switchMode = (mode) => {
+    setAuthMode(mode);
+    setFieldErrors({});
+    setShowPassword(false);
+    if (!alert?.isRateLimit) setAlert(null);
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    if (fieldErrors[name]) {
-      setFieldErrors((prev) => ({ ...prev, [name]: '' }));
-    }
+    if (fieldErrors[name]) setFieldErrors((prev) => ({ ...prev, [name]: '' }));
   };
 
-  const handleRoleSelect = (selectedRole) => {
-    setFormData((prev) => ({ ...prev, role: selectedRole }));
-  };
-
-  // Validation
   const validate = () => {
     const errors = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (authMode === 'register' && !formData.name.trim()) {
-      errors.name = 'Please enter your full name';
+      errors.name = 'Enter your full name';
     }
-
     if (!formData.email.trim()) {
-      errors.email = 'Please enter your email address';
+      errors.email = 'Enter your email address';
     } else if (!emailRegex.test(formData.email.trim())) {
-      errors.email = 'Please enter a valid email address';
+      errors.email = 'Enter a valid email address';
     }
-
     if (!formData.password) {
-      errors.password = 'Please enter your password';
+      errors.password = 'Enter your password';
     } else if (authMode === 'register' && formData.password.length < 6) {
       errors.password = 'Password must be at least 6 characters';
     }
@@ -169,23 +309,17 @@ export default function App() {
     return Object.keys(errors).length === 0;
   };
 
-  // Form Submit (Login or Register via API Gateway)
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (authMode === 'login' && retryAfter > 0) return;
 
     setAlert(null);
-
     if (!validate()) return;
-
     setLoading(true);
 
     try {
-      const endpoint = authMode === 'login'
-        ? `${gatewayUrl}/api/auth/login`
-        : `${gatewayUrl}/api/auth/register`;
-
-      const payload = authMode === 'login'
+      const isLogin = authMode === 'login';
+      const payload = isLogin
         ? {
             email: formData.email.trim().toLowerCase(),
             password: formData.password
@@ -197,656 +331,350 @@ export default function App() {
             role: formData.role
           };
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-
+      const response = await fetch(
+        `${GATEWAY_URL}/api/auth/${isLogin ? 'login' : 'register'}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify(payload)
+        }
+      );
       const data = await response.json().catch(() => ({}));
 
-      if (response.status === 200 && authMode === 'login') {
-        // Successful Login — clear any rate limit state
+      if (response.status === 200 && isLogin) {
         setRetryAfter(0);
-        const newSession = {
-          token: data.token,
-          user: data.user
-        };
+        const newSession = { token: data.token, user: data.user };
+        const store = remember ? localStorage : sessionStorage;
+        localStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(SESSION_KEY);
+        store.setItem(SESSION_KEY, JSON.stringify(newSession));
         setSession(newSession);
-        localStorage.setItem('portal_auth_session', JSON.stringify(newSession));
-
-        setAlert({
-          type: 'success',
-          title: 'Login Successful!',
-          message: `Welcome back, ${data.user?.name || 'User'}! Authenticated via API Gateway.`,
-          details: null
-        });
-      } else if (response.status === 201 && authMode === 'register') {
-        // Successful Registration
-        setAlert({
-          type: 'success',
-          title: 'Registration Successful!',
-          message: 'Your account has been saved to PostgreSQL. You can now log in.',
-          details: data.user || {}
-        });
-
-        // Switch to login tab and prefill email
+        setFormData((p) => ({ ...p, password: '' }));
+      } else if (response.status === 201 && !isLogin) {
         setAuthMode('login');
-        setFormData((prev) => ({
-          ...prev,
-          password: ''
-        }));
+        setFormData((p) => ({ ...p, password: '', name: '' }));
+        setAlert({
+          type: 'success',
+          title: 'Account created',
+          message: 'Your account is ready. Sign in to continue.'
+        });
       } else if (response.status === 429) {
-        // Redis Rate Limit Exceeded
         const headerRetry = response.headers.get('Retry-After');
-        const waitSeconds = Number(data.retryAfter || headerRetry) || 900;
-        setRetryAfter(waitSeconds);
-
+        setRetryAfter(Number(data.retryAfter || headerRetry) || 900);
         setAlert({
           type: 'warning',
           isRateLimit: true,
-          title: 'Too Many Login Attempts (Redis Protection)',
-          message:
-            data.message ||
-            'Maximum 5 failed login attempts reached. Sign-in is temporarily locked for your IP.'
+          title: 'Too many sign-in attempts',
+          message: 'For your security, sign-in is temporarily locked. Please try again shortly.'
         });
-      } else if (response.status === 503) {
-        // Fail-closed when Redis rate limiter is unavailable
-        checkGatewayHealth(gatewayUrl);
+      } else if (response.status === 502 || response.status === 503) {
         setAlert({
           type: 'error',
-          title: 'Service Temporarily Unavailable (503)',
-          message:
-            data.message ||
-            'Redis rate-limiter is unreachable. Ensure Redis is running on port 6379.'
-        });
-      } else if (response.status === 502) {
-        // Auth Service offline behind Gateway
-        checkGatewayHealth(gatewayUrl);
-        setAlert({
-          type: 'error',
-          title: 'Auth Service Offline (502)',
-          message:
-            data.message ||
-            'API Gateway could not reach Auth Service on port 5001.'
+          title: 'Service temporarily unavailable',
+          message: 'We are having trouble reaching our servers. Please try again in a moment.'
         });
       } else {
-        // Validation / Credential Error
         setAlert({
           type: 'error',
-          title: authMode === 'login' ? 'Login Failed' : 'Registration Failed',
-          message: data.message || 'Operation failed. Please verify your credentials and try again.'
+          title: isLogin ? "We couldn't sign you in" : "We couldn't create your account",
+          message:
+            data.message ||
+            'Something went wrong. Please check your details and try again.'
         });
       }
     } catch {
       setAlert({
         type: 'error',
-        title: 'Gateway Connection Error',
-        message: `Could not connect to API Gateway at ${gatewayUrl}. Ensure the API Gateway (port 5000) and Auth Service (port 5001) are running.`
+        title: 'Connection problem',
+        message: 'Unable to connect to the server. Check your connection and try again.'
       });
     } finally {
       setLoading(false);
     }
   };
 
-  // Test Protected /me endpoint with JWT
-  const handleVerifyToken = async () => {
-    if (!session?.token) return;
-    setVerifyLoading(true);
-    setVerifyResult(null);
+  /* =====================  SIGNED-IN VIEW  ===================== */
+  if (session) {
+    const user = session.user || {};
+    const isRecruiter = user.role === 'RECRUITER';
+    const firstName = (user.name || 'there').split(' ')[0];
 
-    try {
-      const res = await fetch(`${gatewayUrl}/api/auth/me`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${session.token}`,
-          Accept: 'application/json'
-        }
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (res.ok) {
-        // Sync fresh user profile from PostgreSQL if returned
-        if (data.user) {
-          const updatedSession = { ...session, user: data.user };
-          setSession(updatedSession);
-          localStorage.setItem('portal_auth_session', JSON.stringify(updatedSession));
-        }
-
-        setVerifyResult({
-          status: 'success',
-          message: 'Token verified & fresh user profile fetched from PostgreSQL!',
-          data
-        });
-      } else {
-        setVerifyResult({
-          status: 'error',
-          message: data.message || 'Token verification failed',
-          data
-        });
-      }
-    } catch {
-      setVerifyResult({
-        status: 'error',
-        message: `Connection error calling ${gatewayUrl}/api/auth/me`
-      });
-    } finally {
-      setVerifyLoading(false);
-    }
-  };
-
-  const handleLogout = () => {
-    setSession(null);
-    localStorage.removeItem('portal_auth_session');
-    setVerifyResult(null);
-    setAlert({
-      type: 'success',
-      title: 'Logged Out',
-      message: 'You have been successfully signed out.'
-    });
-  };
-
-  const handleSaveGatewayUrl = () => {
-    const trimmed = gatewayInput.trim();
-    if (trimmed) {
-      setGatewayUrl(trimmed);
-      localStorage.setItem('api_gateway_url', trimmed);
-      setShowGatewaySettings(false);
-      checkGatewayHealth(trimmed);
-    }
-  };
-
-  const isLoginLocked = authMode === 'login' && retryAfter > 0;
-
-  return (
-    <div>
-      <div className="background-decorations">
-        <div className="blob blob-1"></div>
-        <div className="blob blob-2"></div>
-      </div>
-
-      <main className="page-container">
-        {/* Header */}
-        <header className="portal-header">
-          <div className="brand">
-            <div className="brand-icon">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
-                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-              </svg>
+    return (
+      <div className="app-shell">
+        <header className="topbar">
+          <div className="topbar-inner">
+            <div className="brand-logo dark">
+              <span className="brand-logo-mark">
+                <BriefcaseIcon size={18} />
+              </span>
+              <span className="brand-logo-text">JobConnect</span>
             </div>
-            <div className="brand-text">
-              <h1>JobConnect</h1>
-              <span className="badge">API Gateway + Redis Edition</span>
+            <div className="topbar-user">
+              <div className="avatar">{(user.name || 'U').charAt(0).toUpperCase()}</div>
+              <div className="topbar-user-meta">
+                <strong>{user.name}</strong>
+                <span>{isRecruiter ? 'Recruiter' : 'Job Seeker'}</span>
+              </div>
+              <button type="button" className="btn-outline" onClick={clearSession}>
+                Sign out
+              </button>
             </div>
-          </div>
-
-          <div
-            className={`service-status ${gatewayHealth.status}`}
-            onClick={() => checkGatewayHealth(gatewayUrl)}
-            title={gatewayHealth.title}
-          >
-            <span className="status-dot"></span>
-            <span className="status-label">{gatewayHealth.label}</span>
           </div>
         </header>
 
-        {/* Live Downstream Microservice Status Pills */}
-        {gatewayHealth.services && (
-          <div className="service-pills-bar">
-            <span className="service-pill">
-              <span className={`pill-dot ${gatewayHealth.services.authService === 'online' ? 'online' : 'offline'}`}></span>
-              Auth Service (5001): {gatewayHealth.services.authService}
+        <main className="dashboard">
+          <section className="welcome-card">
+            <div>
+              <h2>Welcome back, {firstName} 👋</h2>
+              <p>
+                {isRecruiter
+                  ? 'Post openings and find the right people for your team.'
+                  : 'Discover roles that match your skills and track your applications.'}
+              </p>
+            </div>
+            <span className={`role-chip ${isRecruiter ? 'recruiter' : 'candidate'}`}>
+              {isRecruiter ? 'Recruiter account' : 'Candidate account'}
             </span>
-            <span className="service-pill">
-              <span className={`pill-dot ${gatewayHealth.services.database === 'connected' ? 'online' : 'offline'}`}></span>
-              PostgreSQL (5432): {gatewayHealth.services.database}
-            </span>
-            <span className="service-pill">
-              <span className={`pill-dot ${gatewayHealth.services.redis === 'connected' ? 'online' : 'offline'}`}></span>
-              Redis Limiter (6379): {gatewayHealth.services.redis}
-            </span>
+          </section>
+
+          <section className="dash-grid">
+            <article className="dash-card">
+              <span className="feature-icon">{isRecruiter ? <BuildingIcon /> : <SearchIcon />}</span>
+              <h3>{isRecruiter ? 'Post a job' : 'Find jobs'}</h3>
+              <p>{isRecruiter ? 'Create your first job listing.' : 'Search and apply to open positions.'}</p>
+              <span className="badge-soon">Coming soon</span>
+            </article>
+            <article className="dash-card">
+              <span className="feature-icon">
+                <UserIcon />
+              </span>
+              <h3>{isRecruiter ? 'Company profile' : 'Your profile'}</h3>
+              <p>{user.email}</p>
+              <span className="badge-soon">Coming soon</span>
+            </article>
+            <article className="dash-card">
+              <span className="feature-icon">
+                <BriefcaseIcon size={20} />
+              </span>
+              <h3>{isRecruiter ? 'Applications' : 'My applications'}</h3>
+              <p>{isRecruiter ? 'Review candidates who applied.' : 'Track the status of your applications.'}</p>
+              <span className="badge-soon">Coming soon</span>
+            </article>
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  /* =====================  AUTH VIEW  ===================== */
+  const isLogin = authMode === 'login';
+  const locked = isLogin && retryAfter > 0;
+
+  return (
+    <div className="auth-layout">
+      <BrandPanel mode={authMode} />
+
+      <main className="auth-panel">
+        <div className="auth-mobile-logo">
+          <span className="brand-logo-mark">
+            <BriefcaseIcon size={18} />
+          </span>
+          <span className="brand-logo-text">JobConnect</span>
+        </div>
+
+        <div className="auth-card">
+          <div className="auth-heading">
+            <h2>{isLogin ? 'Welcome back' : 'Create your account'}</h2>
+            <p>
+              {isLogin
+                ? 'Sign in to continue to JobConnect.'
+                : 'Join JobConnect to find work or hire talent.'}
+            </p>
           </div>
-        )}
 
-        {/* Main Content Card */}
-        <div className="card-container">
-          <div className="card">
-            {/* If user is logged in, show authenticated dashboard */}
-            {session ? (
-              <div className="user-profile-card">
-                <div className="profile-header">
-                  <div className="user-identity">
-                    <div className="user-avatar">
-                      {session.user?.name ? session.user.name.charAt(0).toUpperCase() : 'U'}
-                    </div>
-                    <div className="user-names">
-                      <h3>{session.user?.name || 'Authenticated User'}</h3>
-                      <p>{session.user?.email}</p>
-                    </div>
-                  </div>
-                  <span className={`role-badge ${session.user?.role?.toLowerCase()}`}>
-                    {session.user?.role || 'CANDIDATE'}
-                  </span>
-                </div>
+          {!online && (
+            <div className="banner banner-error" role="alert">
+              <AlertIcon />
+              <span>We can't reach the server right now. Please try again shortly.</span>
+            </div>
+          )}
 
-                <div className="token-section">
-                  <div className="token-header">
-                    <span>Active JWT Token (Issuer: job-portal-auth)</span>
-                  </div>
-                  <div className="token-box">
-                    {session.token}
-                  </div>
-                </div>
-
-                <div className="btn-actions-row">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={handleVerifyToken}
-                    disabled={verifyLoading}
-                  >
-                    {verifyLoading ? 'Verifying...' : '🔑 Test Protected Route (/api/auth/me)'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-danger"
-                    onClick={handleLogout}
-                  >
-                    Sign Out
-                  </button>
-                </div>
-
-                {verifyResult && (
-                  <div className="verify-result">
-                    <strong>{verifyResult.status === 'success' ? '✅ Status 200 OK' : '❌ Error'}:</strong> {verifyResult.message}
-                    {verifyResult.data && (
-                      <pre>{JSON.stringify(verifyResult.data, null, 2)}</pre>
-                    )}
-                  </div>
+          {alert && (
+            <div className={`banner banner-${alert.type}`} role="alert">
+              {alert.type === 'success' ? <CheckIcon /> : <AlertIcon />}
+              <div className="banner-body">
+                <strong>{alert.title}</strong>
+                <span>{alert.message}</span>
+                {alert.isRateLimit && retryAfter > 0 && (
+                  <span className="banner-timer">Try again in {formatCountdown(retryAfter)}</span>
                 )}
               </div>
-            ) : (
-              /* If user is NOT logged in, show Auth Tabs (Login / Register) */
-              <>
-                <div className="auth-tabs">
-                  <button
-                    type="button"
-                    className={`auth-tab-btn ${authMode === 'login' ? 'active' : ''}`}
-                    onClick={() => {
-                      setAuthMode('login');
-                      if (!alert?.isRateLimit) setAlert(null);
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-                      <polyline points="10 17 15 12 10 7"></polyline>
-                      <line x1="15" y1="12" x2="3" y2="12"></line>
-                    </svg>
-                    Sign In
-                  </button>
-                  <button
-                    type="button"
-                    className={`auth-tab-btn ${authMode === 'register' ? 'active' : ''}`}
-                    onClick={() => {
-                      setAuthMode('register');
-                      setAlert(null);
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                      <circle cx="8.5" cy="7" r="4"></circle>
-                      <line x1="20" y1="8" x2="20" y2="14"></line>
-                      <line x1="23" y1="11" x2="17" y2="11"></line>
-                    </svg>
-                    Register
-                  </button>
-                </div>
+              <button
+                type="button"
+                className="banner-close"
+                onClick={() => setAlert(null)}
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
 
-                <div className="card-header">
-                  <h2>{authMode === 'login' ? 'Welcome Back' : 'Create an Account'}</h2>
-                  <p className="subtitle">
-                    {authMode === 'login'
-                      ? 'Sign in to access your job portal account (Protected by Redis Rate Limiter)'
-                      : 'Join our talent network to apply or recruit top candidates'}
-                  </p>
-                </div>
-
-                {/* Alert Banner */}
-                {alert && (
-                  <div className={`alert-box ${alert.type}`}>
-                    <div className="alert-icon">
-                      {alert.type === 'success' ? (
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2">
-                          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                          <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                        </svg>
-                      ) : alert.type === 'warning' ? (
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2">
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <polyline points="12 6 12 12 16 14"></polyline>
-                        </svg>
-                      ) : (
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <line x1="12" y1="8" x2="12" y2="12"></line>
-                          <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                        </svg>
-                      )}
-                    </div>
-                    <div className="alert-content">
-                      <h4>{alert.title}</h4>
-                      <p>{alert.message}</p>
-                      {alert.isRateLimit && retryAfter > 0 && (
-                        <div className="countdown-badge">
-                          ⏳ Cooldown remaining: {formatCountdown(retryAfter)}
-                        </div>
-                      )}
-                      {alert.details && (
-                        <div className="alert-details">
-                          <table>
-                            <tbody>
-                              <tr><td>Database ID:</td><td><strong>#{alert.details.id}</strong></td></tr>
-                              <tr><td>Name:</td><td>{alert.details.name}</td></tr>
-                              <tr><td>Email:</td><td>{alert.details.email}</td></tr>
-                              <tr><td>Role:</td><td><span style={{ color: '#4f46e5', fontWeight: 700 }}>{alert.details.role}</span></td></tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className="alert-close"
-                      onClick={() => setAlert(null)}
-                    >
-                      &times;
-                    </button>
-                  </div>
-                )}
-
-                <form onSubmit={handleSubmit} noValidate>
-                  {/* Role Selector (Register Only) */}
-                  {authMode === 'register' && (
-                    <div className="form-group">
-                      <label className="group-label">
-                        I am joining as <span className="required">*</span>
-                      </label>
-                      <div className="role-grid">
-                        <div
-                          className={`role-card ${formData.role === 'CANDIDATE' ? 'selected' : ''}`}
-                          onClick={() => handleRoleSelect('CANDIDATE')}
-                        >
-                          <input
-                            type="radio"
-                            name="role"
-                            value="CANDIDATE"
-                            checked={formData.role === 'CANDIDATE'}
-                            onChange={() => handleRoleSelect('CANDIDATE')}
-                          />
-                          <div className="role-content">
-                            <div className="role-icon">
-                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                                <circle cx="12" cy="7" r="4"></circle>
-                              </svg>
-                            </div>
-                            <div className="role-info">
-                              <div className="role-title">Job Seeker</div>
-                              <div className="role-desc">Candidate applying for jobs</div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div
-                          className={`role-card ${formData.role === 'RECRUITER' ? 'selected' : ''}`}
-                          onClick={() => handleRoleSelect('RECRUITER')}
-                        >
-                          <input
-                            type="radio"
-                            name="role"
-                            value="RECRUITER"
-                            checked={formData.role === 'RECRUITER'}
-                            onChange={() => handleRoleSelect('RECRUITER')}
-                          />
-                          <div className="role-content">
-                            <div className="role-icon">
-                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                                <circle cx="8.5" cy="7" r="4"></circle>
-                                <line x1="20" y1="8" x2="20" y2="14"></line>
-                                <line x1="23" y1="11" x2="17" y2="11"></line>
-                              </svg>
-                            </div>
-                            <div className="role-info">
-                              <div className="role-title">Recruiter</div>
-                              <div className="role-desc">Hiring & posting jobs</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Name Input (Register Only) */}
-                  {authMode === 'register' && (
-                    <div className="form-group">
-                      <label htmlFor="name">
-                        Full Name <span className="required">*</span>
-                      </label>
-                      <div className="input-wrapper">
-                        <div className="input-icon">
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="12" cy="7" r="4"></circle>
-                          </svg>
-                        </div>
-                        <input
-                          type="text"
-                          id="name"
-                          name="name"
-                          placeholder="John Doe"
-                          value={formData.name}
-                          onChange={handleInputChange}
-                          className={fieldErrors.name ? 'error' : ''}
-                          autoComplete="name"
-                        />
-                      </div>
-                      <span className="field-error">{fieldErrors.name}</span>
-                    </div>
-                  )}
-
-                  {/* Email Input */}
-                  <div className="form-group">
-                    <label htmlFor="email">
-                      Email Address <span className="required">*</span>
-                    </label>
-                    <div className="input-wrapper">
-                      <div className="input-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
-                          <polyline points="22,6 12,13 2,6"></polyline>
-                        </svg>
-                      </div>
-                      <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        placeholder="john.doe@example.com"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        className={fieldErrors.email ? 'error' : ''}
-                        autoComplete="email"
-                      />
-                    </div>
-                    <span className="field-error">{fieldErrors.email}</span>
-                  </div>
-
-                  {/* Password Input */}
-                  <div className="form-group">
-                    <label htmlFor="password">
-                      Password <span className="required">*</span>
-                    </label>
-                    <div className="input-wrapper">
-                      <div className="input-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                        </svg>
-                      </div>
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        id="password"
-                        name="password"
-                        placeholder={authMode === 'login' ? 'Enter your password' : 'Create a strong password'}
-                        value={formData.password}
-                        onChange={handleInputChange}
-                        className={fieldErrors.password ? 'error' : ''}
-                        autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
-                      />
-                      <button
-                        type="button"
-                        className="toggle-password"
-                        onClick={() => setShowPassword(!showPassword)}
-                        aria-label="Toggle password visibility"
-                      >
-                        {showPassword ? (
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                            <line x1="1" y1="1" x2="23" y2="23"></line>
-                          </svg>
-                        ) : (
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                            <circle cx="12" cy="12" r="3"></circle>
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                    <span className="field-error">{fieldErrors.password}</span>
-                  </div>
-
-                  {/* Submit Button */}
-                  <button type="submit" className="btn-primary" disabled={loading || isLoginLocked}>
-                    {loading && <span className="btn-spinner"></span>}
-                    <span>
-                      {loading
-                        ? (authMode === 'login' ? 'Authenticating...' : 'Saving to Database...')
-                        : isLoginLocked
-                          ? `🔒 Locked — Retry in ${formatCountdown(retryAfter)}`
-                          : (authMode === 'login' ? 'Sign In to Portal' : 'Register Account')}
-                    </span>
-                  </button>
-
-                  <div className="form-switch-prompt">
-                    {authMode === 'login' ? (
-                      <>
-                        Don't have an account yet?
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAuthMode('register');
-                            setAlert(null);
-                          }}
-                        >
-                          Register here
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        Already registered?
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAuthMode('login');
-                            if (!alert?.isRateLimit) setAlert(null);
-                          }}
-                        >
-                          Sign In here
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </form>
-              </>
+          <form onSubmit={handleSubmit} noValidate>
+            {!isLogin && (
+              <fieldset className="role-toggle">
+                <legend>I want to</legend>
+                <label className={formData.role === 'CANDIDATE' ? 'active' : ''}>
+                  <input
+                    type="radio"
+                    name="role"
+                    value="CANDIDATE"
+                    checked={formData.role === 'CANDIDATE'}
+                    onChange={handleInputChange}
+                  />
+                  <SearchIcon />
+                  <span>
+                    <strong>Find a job</strong>
+                    <small>I'm a job seeker</small>
+                  </span>
+                </label>
+                <label className={formData.role === 'RECRUITER' ? 'active' : ''}>
+                  <input
+                    type="radio"
+                    name="role"
+                    value="RECRUITER"
+                    checked={formData.role === 'RECRUITER'}
+                    onChange={handleInputChange}
+                  />
+                  <BuildingIcon />
+                  <span>
+                    <strong>Hire talent</strong>
+                    <small>I'm a recruiter</small>
+                  </span>
+                </label>
+              </fieldset>
             )}
 
-            {/* API Gateway Configuration */}
-            <div className="card-footer">
-              <div className="endpoint-toggle">
+            {!isLogin && (
+              <div className="field">
+                <label htmlFor="name">Full name</label>
+                <div className={`input ${fieldErrors.name ? 'has-error' : ''}`}>
+                  <UserIcon />
+                  <input
+                    id="name"
+                    name="name"
+                    type="text"
+                    placeholder="Jane Smith"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    autoComplete="name"
+                  />
+                </div>
+                {fieldErrors.name && <span className="field-error">{fieldErrors.name}</span>}
+              </div>
+            )}
+
+            <div className="field">
+              <label htmlFor="email">Email address</label>
+              <div className={`input ${fieldErrors.email ? 'has-error' : ''}`}>
+                <MailIcon />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  autoComplete="email"
+                />
+              </div>
+              {fieldErrors.email && <span className="field-error">{fieldErrors.email}</span>}
+            </div>
+
+            <div className="field">
+              <label htmlFor="password">Password</label>
+              <div className={`input ${fieldErrors.password ? 'has-error' : ''}`}>
+                <LockIcon />
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder={isLogin ? 'Enter your password' : 'At least 6 characters'}
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  autoComplete={isLogin ? 'current-password' : 'new-password'}
+                />
                 <button
                   type="button"
-                  className="text-link"
-                  onClick={() => setShowGatewaySettings(!showGatewaySettings)}
+                  className="icon-btn"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  <span>🌐 Routing Target: <code>{gatewayUrl}</code></span>
+                  <EyeIcon off={showPassword} />
                 </button>
               </div>
+              {fieldErrors.password && <span className="field-error">{fieldErrors.password}</span>}
 
-              {showGatewaySettings && (
-                <div className="endpoint-panel">
-                  <label htmlFor="gatewayUrlInput">API Gateway URL:</label>
-                  <div className="endpoint-input-row">
-                    <input
-                      type="text"
-                      id="gatewayUrlInput"
-                      value={gatewayInput}
-                      onChange={(e) => setGatewayInput(e.target.value)}
-                    />
-                    <button type="button" className="btn-secondary" onClick={handleSaveGatewayUrl}>
-                      Save
-                    </button>
+              {!isLogin && formData.password && (
+                <div className="strength" aria-live="polite">
+                  <div className="strength-bars">
+                    {[1, 2, 3, 4].map((i) => (
+                      <span
+                        key={i}
+                        className={i <= strength.score ? `on s${strength.score}` : ''}
+                      />
+                    ))}
                   </div>
-                  <small className="helper-text">
-                    API Gateway: <code>http://localhost:5000</code> | Direct Auth Service: <code>http://localhost:5001</code>
-                  </small>
+                  <span className={`strength-label s${strength.score}`}>{strength.label}</span>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Microservices Routing Flow Card */}
-          <div className="db-guide-card">
-            <h3>Microservices Communication Architecture</h3>
-            <div className="gateway-flow-diagram">
-              <div className="flow-step">
-                <span className="step-title">React Client</span>
-                <span className="step-port">Port 5173</span>
+            {isLogin && (
+              <div className="form-row">
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                  />
+                  <span>Keep me signed in</span>
+                </label>
               </div>
-              <span className="flow-arrow">➔</span>
-              <div className="flow-step">
-                <span className="step-title">API Gateway</span>
-                <span className="step-port">Port 5000</span>
-              </div>
-              <span className="flow-arrow">➔</span>
-              <div className="flow-step">
-                <span className="step-title">Auth Service</span>
-                <span className="step-port">Port 5001</span>
-              </div>
-              <span className="flow-arrow">➔</span>
-              <div className="flow-backends">
-                <div className="flow-step">
-                  <span className="step-title">PostgreSQL DB</span>
-                  <span className="step-port">auth_db:5432</span>
-                </div>
-                <div className="flow-step">
-                  <span className="step-title">Redis Cache</span>
-                  <span className="step-port">Limiter:6379</span>
-                </div>
-              </div>
-            </div>
-            <ol>
-              <li><strong>Login:</strong> Sends <code>POST /api/auth/login</code> via Gateway ➔ returns JWT signed token & user profile.</li>
-              <li><strong>Redis Rate Limit:</strong> Caps failed logins at <code>5 attempts / 15 min</code> per client IP (resets automatically on valid login).</li>
-              <li><strong>Register:</strong> Sends <code>POST /api/auth/register</code> via Gateway ➔ creates hashed user record in PostgreSQL.</li>
-              <li><strong>Protected Route:</strong> Sends <code>GET /api/auth/me</code> with <code>Bearer &lt;token&gt;</code> to verify active session & fetch fresh DB user data.</li>
-            </ol>
-          </div>
+            )}
+
+            <button type="submit" className="btn-primary" disabled={loading || locked}>
+              {loading && <span className="spinner" />}
+              {loading
+                ? isLogin
+                  ? 'Signing in…'
+                  : 'Creating account…'
+                : locked
+                  ? `Try again in ${formatCountdown(retryAfter)}`
+                  : isLogin
+                    ? 'Sign in'
+                    : 'Create account'}
+            </button>
+
+            {!isLogin && (
+              <p className="legal">
+                By creating an account, you agree to our Terms of Service and Privacy Policy.
+              </p>
+            )}
+          </form>
+
+          <p className="switch">
+            {isLogin ? 'New to JobConnect?' : 'Already have an account?'}
+            <button type="button" onClick={() => switchMode(isLogin ? 'register' : 'login')}>
+              {isLogin ? 'Join now' : 'Sign in'}
+            </button>
+          </p>
         </div>
+
+        <footer className="auth-footer">© {new Date().getFullYear()} JobConnect</footer>
       </main>
     </div>
   );
