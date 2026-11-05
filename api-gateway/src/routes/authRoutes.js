@@ -3,6 +3,7 @@ const { createProxyMiddleware } = require("http-proxy-middleware");
 const authProxy = createProxyMiddleware({
     target: process.env.AUTH_SERVICE_URL,
     changeOrigin: true,
+    xfwd: true,
 
     // Restore the /api/auth prefix removed by Express mounting
     pathRewrite: (path) => `/api/auth${path}`,

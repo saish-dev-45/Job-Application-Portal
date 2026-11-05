@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { redisClient } = require("../config/redis");
 
 //Register user
 const register = async (req, res) => {
@@ -74,6 +75,11 @@ const login = async (req, res) => {
             return res.status(401).json({ status: "error", message: "Invalid email or password" });
         }
 
+        // Clear failed login attempts counter on successful login
+        if (req.rateLimitKey && redisClient.isReady) {
+            await redisClient.del(req.rateLimitKey).catch(() => {});
+        }
+
         //4.Generate JWT Token
         const token = jwt.sign(
             { userId: user.id, role: user.role },
@@ -109,7 +115,7 @@ const getMe = async (req, res) => {
             `SELECT id, name, email, role, created_at
              FROM users
              WHERE id = $1`,
-            [req.user.id]
+            [req.user.userId]
         );
 
         if (result.rows.length === 0) {

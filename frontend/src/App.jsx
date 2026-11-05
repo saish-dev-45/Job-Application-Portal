@@ -2,9 +2,16 @@ import React, { useState, useEffect } from 'react';
 
 const DEFAULT_GATEWAY = 'http://localhost:5000';
 
+const formatCountdown = (totalSeconds) => {
+  const sec = Math.max(0, Number(totalSeconds) || 0);
+  const mins = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return mins > 0 ? `${mins}m ${String(rem).padStart(2, '0')}s` : `${rem}s`;
+};
+
 export default function App() {
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
-  
+
   // Registration & Login Form State
   const [formData, setFormData] = useState({
     name: '',
@@ -17,6 +24,9 @@ export default function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
+
+  // Redis Rate-Limit Countdown (seconds remaining when locked out with HTTP 429)
+  const [retryAfter, setRetryAfter] = useState(0);
 
   // Authenticated User Session
   const [session, setSession] = useState(() => {
@@ -39,14 +49,40 @@ export default function App() {
   const [gatewayInput, setGatewayInput] = useState(gatewayUrl);
   const [showGatewaySettings, setShowGatewaySettings] = useState(false);
 
-  // Gateway Health Status
+  // Gateway & Downstream Health Status
   const [gatewayHealth, setGatewayHealth] = useState({
     status: 'checking',
     label: 'Checking API Gateway...',
-    title: ''
+    title: '',
+    services: null
   });
 
-  // Check API Gateway Health
+  // Tick down Redis rate-limit timer every second
+  useEffect(() => {
+    if (retryAfter <= 0) return;
+
+    const timer = setInterval(() => {
+      setRetryAfter((prev) => {
+        if (prev <= 1) {
+          setAlert((curr) =>
+            curr?.isRateLimit
+              ? {
+                  type: 'success',
+                  title: 'Rate Limit Cleared',
+                  message: 'Cooldown period finished. You may sign in again.'
+                }
+              : curr
+          );
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [retryAfter]);
+
+  // Check API Gateway & Downstream Services Health
   const checkGatewayHealth = async (targetUrl = gatewayUrl) => {
     try {
       const healthUrl = `${targetUrl}/health`;
@@ -54,23 +90,38 @@ export default function App() {
       const data = await res.json();
 
       if (res.ok && data.status === 'success') {
+        // Supports both API Gateway (/health returns data.services) and direct Auth Service (:5001/health)
+        const services = data.services || {
+          authService: 'online',
+          database: 'connected',
+          redis: data.redis || 'unknown'
+        };
+
+        const allHealthy =
+          services.authService === 'online' &&
+          services.database === 'connected' &&
+          services.redis === 'connected';
+
         setGatewayHealth({
-          status: 'connected',
-          label: 'API Gateway Online (Port 5000)',
-          title: `Connected to API Gateway: ${data.message || 'OK'}`
+          status: allHealthy ? 'connected' : 'checking',
+          label: allHealthy ? 'All Services Online' : 'Gateway Online (Degraded)',
+          title: `Gateway: Online | Auth: ${services.authService} | DB: ${services.database} | Redis: ${services.redis}`,
+          services
         });
       } else {
         setGatewayHealth({
           status: 'error',
           label: 'Gateway Error',
-          title: data.message || 'Health check error'
+          title: data.message || 'Health check error',
+          services: null
         });
       }
     } catch {
       setGatewayHealth({
         status: 'error',
         label: 'Gateway Offline (Port 5000)',
-        title: `Could not reach ${targetUrl}. Ensure API Gateway is running.`
+        title: `Could not reach ${targetUrl}. Ensure API Gateway is running.`,
+        services: null
       });
     }
   };
@@ -121,6 +172,8 @@ export default function App() {
   // Form Submit (Login or Register via API Gateway)
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (authMode === 'login' && retryAfter > 0) return;
+
     setAlert(null);
 
     if (!validate()) return;
@@ -156,7 +209,8 @@ export default function App() {
       const data = await response.json().catch(() => ({}));
 
       if (response.status === 200 && authMode === 'login') {
-        // Successful Login
+        // Successful Login — clear any rate limit state
+        setRetryAfter(0);
         const newSession = {
           token: data.token,
           user: data.user
@@ -185,15 +239,49 @@ export default function App() {
           ...prev,
           password: ''
         }));
+      } else if (response.status === 429) {
+        // Redis Rate Limit Exceeded
+        const headerRetry = response.headers.get('Retry-After');
+        const waitSeconds = Number(data.retryAfter || headerRetry) || 900;
+        setRetryAfter(waitSeconds);
+
+        setAlert({
+          type: 'warning',
+          isRateLimit: true,
+          title: 'Too Many Login Attempts (Redis Protection)',
+          message:
+            data.message ||
+            'Maximum 5 failed login attempts reached. Sign-in is temporarily locked for your IP.'
+        });
+      } else if (response.status === 503) {
+        // Fail-closed when Redis rate limiter is unavailable
+        checkGatewayHealth(gatewayUrl);
+        setAlert({
+          type: 'error',
+          title: 'Service Temporarily Unavailable (503)',
+          message:
+            data.message ||
+            'Redis rate-limiter is unreachable. Ensure Redis is running on port 6379.'
+        });
+      } else if (response.status === 502) {
+        // Auth Service offline behind Gateway
+        checkGatewayHealth(gatewayUrl);
+        setAlert({
+          type: 'error',
+          title: 'Auth Service Offline (502)',
+          message:
+            data.message ||
+            'API Gateway could not reach Auth Service on port 5001.'
+        });
       } else {
-        // Error from Gateway or Auth Service
+        // Validation / Credential Error
         setAlert({
           type: 'error',
           title: authMode === 'login' ? 'Login Failed' : 'Registration Failed',
           message: data.message || 'Operation failed. Please verify your credentials and try again.'
         });
       }
-    } catch (err) {
+    } catch {
       setAlert({
         type: 'error',
         title: 'Gateway Connection Error',
@@ -222,9 +310,16 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
+        // Sync fresh user profile from PostgreSQL if returned
+        if (data.user) {
+          const updatedSession = { ...session, user: data.user };
+          setSession(updatedSession);
+          localStorage.setItem('portal_auth_session', JSON.stringify(updatedSession));
+        }
+
         setVerifyResult({
           status: 'success',
-          message: 'Token verified successfully through API Gateway!',
+          message: 'Token verified & fresh user profile fetched from PostgreSQL!',
           data
         });
       } else {
@@ -234,7 +329,7 @@ export default function App() {
           data
         });
       }
-    } catch (err) {
+    } catch {
       setVerifyResult({
         status: 'error',
         message: `Connection error calling ${gatewayUrl}/api/auth/me`
@@ -265,6 +360,8 @@ export default function App() {
     }
   };
 
+  const isLoginLocked = authMode === 'login' && retryAfter > 0;
+
   return (
     <div>
       <div className="background-decorations">
@@ -284,7 +381,7 @@ export default function App() {
             </div>
             <div className="brand-text">
               <h1>JobConnect</h1>
-              <span className="badge">API Gateway Edition</span>
+              <span className="badge">API Gateway + Redis Edition</span>
             </div>
           </div>
 
@@ -297,6 +394,24 @@ export default function App() {
             <span className="status-label">{gatewayHealth.label}</span>
           </div>
         </header>
+
+        {/* Live Downstream Microservice Status Pills */}
+        {gatewayHealth.services && (
+          <div className="service-pills-bar">
+            <span className="service-pill">
+              <span className={`pill-dot ${gatewayHealth.services.authService === 'online' ? 'online' : 'offline'}`}></span>
+              Auth Service (5001): {gatewayHealth.services.authService}
+            </span>
+            <span className="service-pill">
+              <span className={`pill-dot ${gatewayHealth.services.database === 'connected' ? 'online' : 'offline'}`}></span>
+              PostgreSQL (5432): {gatewayHealth.services.database}
+            </span>
+            <span className="service-pill">
+              <span className={`pill-dot ${gatewayHealth.services.redis === 'connected' ? 'online' : 'offline'}`}></span>
+              Redis Limiter (6379): {gatewayHealth.services.redis}
+            </span>
+          </div>
+        )}
 
         {/* Main Content Card */}
         <div className="card-container">
@@ -364,7 +479,7 @@ export default function App() {
                     className={`auth-tab-btn ${authMode === 'login' ? 'active' : ''}`}
                     onClick={() => {
                       setAuthMode('login');
-                      setAlert(null);
+                      if (!alert?.isRateLimit) setAlert(null);
                     }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -396,7 +511,7 @@ export default function App() {
                   <h2>{authMode === 'login' ? 'Welcome Back' : 'Create an Account'}</h2>
                   <p className="subtitle">
                     {authMode === 'login'
-                      ? 'Sign in to access your job portal account'
+                      ? 'Sign in to access your job portal account (Protected by Redis Rate Limiter)'
                       : 'Join our talent network to apply or recruit top candidates'}
                   </p>
                 </div>
@@ -410,6 +525,11 @@ export default function App() {
                           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
                           <polyline points="22 4 12 14.01 9 11.01"></polyline>
                         </svg>
+                      ) : alert.type === 'warning' ? (
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
                       ) : (
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
                           <circle cx="12" cy="12" r="10"></circle>
@@ -421,6 +541,11 @@ export default function App() {
                     <div className="alert-content">
                       <h4>{alert.title}</h4>
                       <p>{alert.message}</p>
+                      {alert.isRateLimit && retryAfter > 0 && (
+                        <div className="countdown-badge">
+                          ⏳ Cooldown remaining: {formatCountdown(retryAfter)}
+                        </div>
+                      )}
                       {alert.details && (
                         <div className="alert-details">
                           <table>
@@ -606,12 +731,14 @@ export default function App() {
                   </div>
 
                   {/* Submit Button */}
-                  <button type="submit" className="btn-primary" disabled={loading}>
+                  <button type="submit" className="btn-primary" disabled={loading || isLoginLocked}>
                     {loading && <span className="btn-spinner"></span>}
                     <span>
                       {loading
                         ? (authMode === 'login' ? 'Authenticating...' : 'Saving to Database...')
-                        : (authMode === 'login' ? 'Sign In to Portal' : 'Register Account')}
+                        : isLoginLocked
+                          ? `🔒 Locked — Retry in ${formatCountdown(retryAfter)}`
+                          : (authMode === 'login' ? 'Sign In to Portal' : 'Register Account')}
                     </span>
                   </button>
 
@@ -636,7 +763,7 @@ export default function App() {
                           type="button"
                           onClick={() => {
                             setAuthMode('login');
-                            setAlert(null);
+                            if (!alert?.isRateLimit) setAlert(null);
                           }}
                         >
                           Sign In here
@@ -688,7 +815,7 @@ export default function App() {
             <div className="gateway-flow-diagram">
               <div className="flow-step">
                 <span className="step-title">React Client</span>
-                <span className="step-port">Port 3000</span>
+                <span className="step-port">Port 5173</span>
               </div>
               <span className="flow-arrow">➔</span>
               <div className="flow-step">
@@ -701,15 +828,22 @@ export default function App() {
                 <span className="step-port">Port 5001</span>
               </div>
               <span className="flow-arrow">➔</span>
-              <div className="flow-step">
-                <span className="step-title">PostgreSQL DB</span>
-                <span className="step-port">auth_db:5432</span>
+              <div className="flow-backends">
+                <div className="flow-step">
+                  <span className="step-title">PostgreSQL DB</span>
+                  <span className="step-port">auth_db:5432</span>
+                </div>
+                <div className="flow-step">
+                  <span className="step-title">Redis Cache</span>
+                  <span className="step-port">Limiter:6379</span>
+                </div>
               </div>
             </div>
             <ol>
               <li><strong>Login:</strong> Sends <code>POST /api/auth/login</code> via Gateway ➔ returns JWT signed token & user profile.</li>
+              <li><strong>Redis Rate Limit:</strong> Caps failed logins at <code>5 attempts / 15 min</code> per client IP (resets automatically on valid login).</li>
               <li><strong>Register:</strong> Sends <code>POST /api/auth/register</code> via Gateway ➔ creates hashed user record in PostgreSQL.</li>
-              <li><strong>Protected Route:</strong> Sends <code>GET /api/auth/me</code> with <code>Bearer &lt;token&gt;</code> to verify active session.</li>
+              <li><strong>Protected Route:</strong> Sends <code>GET /api/auth/me</code> with <code>Bearer &lt;token&gt;</code> to verify active session & fetch fresh DB user data.</li>
             </ol>
           </div>
         </div>
